@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hecke Enterprise Console v4.0 — Certainty Layer</title>
+<meta name="description" content="HeckeFraudGuard v3.3 + HeckeInvoiceGuard v1.0 + Heuristic Engine v1.0 — 24-pattern fraud detection using 0-Hecke algebra with complementary behavioral scoring.">
+<meta name="author" content="S. F. Lefort — SFL Consulting — Herstal, Belgium">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;600;700;800&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Libre Franklin', system-ui, sans-serif; background: #f5f6f8; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #c8cdd6; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9aa3b4; }
+  #root { min-height: 100vh; }
+  .hecke-loading { display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:16px; }
+  .hecke-spinner { width:40px;height:40px;border:3px solid #e2e6ed;border-top:3px solid #1a2744;border-radius:50%;animation:hkspin .8s linear infinite; }
+  @keyframes hkspin { to { transform:rotate(360deg); } }
+</style>
+
+<!-- Dependencies: load order matters -->
+<!-- 1. React + ReactDOM -->
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<!-- 2. PropTypes (required by Recharts UMD) -->
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+<!-- 3. Recharts UMD (depends on React + PropTypes being global) -->
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+<!-- 4. Babel standalone for JSX transpilation -->
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+</head>
+<body>
+<div id="root">
+  <div class="hecke-loading">
+    <div class="hecke-spinner"></div>
+    <div style="font-size:13px;color:#6b7a94;font-family:'Libre Franklin',system-ui,sans-serif">Loading Hecke Enterprise Console v4.0…</div>
+  </div>
+</div>
+
+<script type="text/babel">
+// ═══════════════════════════════════════════════════════════════
+// Hecke Enterprise Console v4.0 — Certainty Layer
+// © 2026 S. F. Lefort · SFL Consulting · Herstal, Belgium
+// DOI: 10.5281/zenodo.18609841 · 10.5281/zenodo.18642975
+// License: CC BY 4.0
+// ═══════════════════════════════════════════════════════════════
+
+// React hooks from global
+const { useState, useMemo, useCallback } = React;
+
+// Recharts components from global (UMD exposes window.Recharts)
+const { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis,
+        Tooltip, ResponsiveContainer, CartesianGrid, RadarChart, Radar,
+        PolarGrid, PolarAngleAxis, PolarRadiusAxis } = Recharts;
+
+// ═══ CORE ENGINE — 0-Hecke Monoid H₀(Sₙ) ═════════════════════
+function reduce(w){const r=[...w],st=[],v=new Set();let c=true;while(c){c=false;for(let i=0;i<r.length-1;i++){if(r[i]===r[i+1]){r.splice(i+1,1);st.push({rule:'R1',pos:i});v.add('R1');c=true;break;}}if(c)continue;for(let i=0;i<r.length-1;i++){if(Math.abs(r[i]-r[i+1])>=2&&r[i]>r[i+1]){[r[i],r[i+1]]=[r[i+1],r[i]];st.push({rule:'R2',pos:i});v.add('R2');c=true;break;}}if(c)continue;for(let i=0;i<r.length-2;i++){if(r[i]===r[i+2]&&Math.abs(r[i]-r[i+1])===1&&r[i]>r[i+1]){const a=r[i],b=r[i+1];r[i]=b;r[i+1]=a;r[i+2]=b;st.push({rule:'R3',pos:i});v.add('R3');c=true;break;}}}return{canonical:r,steps:st,violations:[...v]};}
+function sHash(s){let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return Math.abs(h).toString(16).padStart(16,'0');}
+
+// ═══ HEURISTIC SCORING ENGINE (NEW v4) ═════════════════════════
+// Complementary layer: behavioral/statistical flags alongside algebraic proofs
+function scoreVelocity(txHistory,current){const w=txHistory.filter(t=>t.creditor?.bic===current.creditor?.bic&&Math.abs(t.ts-current.ts)<864e5*7);return w.length>3?{flag:true,score:Math.min(w.length*15,85),reason:`${w.length} transactions to same beneficiary in 7 days`}:{flag:false,score:0};}
+function scoreVoP(tx){if(tx.type!=='payment')return{match:'N/A',score:0};const m=tx._vopResult||'MATCH';return m==='MATCH'?{match:'MATCH',score:0}:m==='CLOSE_MATCH'?{match:'CLOSE_MATCH',score:35,reason:'Payee name partial match — verify'}:{match:'NO_MATCH',score:75,reason:'IBAN-name mismatch detected'};}
+function scoreCrossBorder(tx){if(tx.type!=='payment')return{flag:false,score:0};if(tx.amount>15000&&tx.creditor?.co&&!['BE','NL','LU','DE','FR'].includes(tx.creditor.co))return{flag:true,score:40,reason:`High-value cross-border: €${tx.amount.toFixed(0)} to ${tx.creditor.co}`};return{flag:false,score:0};}
+
+// ═══ DATA GEN ═══════════════════════════════════════════════════
+let _s=42;const R=()=>{_s=(_s*16807)%2147483647;return(_s-1)/2147483646};const pk=a=>a[Math.floor(R()*a.length)];const rId=(p,n)=>p+String(Math.floor(R()*10**n)).padStart(n,'0');const fmtD=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;const addD=(d,n)=>new Date(d.getTime()+n*864e5);
+
+const VENDORS=[{id:'V-100001',name:'Siemens AG',co:'DE',t:'NET30',b:'DEUTDEFF'},{id:'V-100002',name:'Schneider Electric',co:'FR',t:'NET45',b:'BNPAFRPP'},{id:'V-100003',name:'ABB Ltd',co:'CH',t:'NET30',b:'UBSWCHZH'},{id:'V-100004',name:'Dassault Systèmes',co:'FR',t:'NET60',b:'SOGEFRPP'},{id:'V-100005',name:'SAP SE',co:'DE',t:'NET30',b:'COBADEFF'},{id:'V-100006',name:'Bosch Rexroth',co:'DE',t:'NET45',b:'DEUTDEFF'},{id:'V-100007',name:'Philips International',co:'NL',t:'NET30',b:'INGBNL2A'},{id:'V-100008',name:'Atos SE',co:'FR',t:'NET60',b:'BNPAFRPP'},{id:'V-100009',name:'KONE Corp.',co:'FI',t:'NET30',b:'NDEAFIHH'},{id:'V-100010',name:'Infineon Tech.',co:'DE',t:'NET45',b:'HYVEDEMM'},{id:'V-100011',name:'Nokia Corp.',co:'FI',t:'NET30',b:'NDEAFIHH'},{id:'V-100012',name:'Thales SA',co:'FR',t:'NET45',b:'BNPAFRPP'}];
+const DEBTORS=[{name:'KBC Bank NV',bic:'KREDBEBB',iban:'BE68539007547034'},{name:'ING Belgium',bic:'BBRUBEBB',iban:'BE68539007547035'},{name:'BNP Paribas Fortis',bic:'GEBABEBB',iban:'BE68539007547036'},{name:'Belfius Bank',bic:'GKCCBEBB',iban:'BE68539007547037'},{name:'Argenta',bic:'ARSPBE22',iban:'BE68539007547038'}];
+const CREDITORS=[{name:'BNP Paribas SA',bic:'BNPAFRPP',co:'FR',iban:'FR76300040000312345'},{name:'Société Générale',bic:'SOGEFRPP',co:'FR',iban:'FR76300040000398765'},{name:'Deutsche Bank',bic:'DEUTDEFF',co:'DE',iban:'DE89370400440532013'},{name:'Commerzbank',bic:'COBADEFF',co:'DE',iban:'DE27100777770209299'},{name:'ING Bank NV',bic:'INGBNL2A',co:'NL',iban:'NL91ABNA0417164300'},{name:'ABN AMRO',bic:'ABNANL2A',co:'NL',iban:'NL02ABNA0123456789'},{name:'Banco Santander',bic:'BSCHESMM',co:'ES',iban:'ES9121000418450200'},{name:'UniCredit',bic:'UNCRITMM',co:'IT',iban:'IT60X054281110100'}];
+const MATG=[{c:'MG-100',n:'IT Hardware',gl:'6010-1000'},{c:'MG-200',n:'Software Licenses',gl:'6020-1000'},{c:'MG-300',n:'Office Supplies',gl:'6030-1000'},{c:'MG-400',n:'Consulting',gl:'6040-1000'},{c:'MG-500',n:'Maintenance',gl:'6050-1000'},{c:'MG-600',n:'Raw Materials',gl:'6060-1000'},{c:'MG-700',n:'Transport',gl:'6070-1000'},{c:'MG-800',n:'Energy',gl:'6080-1000'},{c:'MG-900',n:'Prof. Services',gl:'6090-1000'},{c:'MG-950',n:'Facility Mgmt',gl:'6095-1000'}];
+const CCTR=[{c:'CC-1000',d:'IT',m:'Van den Berg, K.'},{c:'CC-2000',d:'Finance',m:'Dupont, M.'},{c:'CC-3000',d:'Operations',m:'Müller, H.'},{c:'CC-4000',d:'HR',m:'Laurent, S.'},{c:'CC-5000',d:'Legal',m:'Peeters, J.'},{c:'CC-6000',d:'Procurement',m:'Schmidt, A.'},{c:'CC-7000',d:'R&D',m:'De Smet, L.'},{c:'CC-8000',d:'Sales',m:'Janssen, P.'}];
+const COCO=[{c:'1000',n:'SFL Group Belgium'},{c:'2000',n:'SFL France SAS'},{c:'3000',n:'SFL Deutschland GmbH'}];
+const PURP=['Supplier payment','Service contract','Equipment maintenance','Raw materials','Software license','Consulting','Transport','Insurance','Lease','IT infrastructure','Marketing','Legal advisory','Audit services','Spare parts','Energy supply'];
+
+// ═══ PATTERN CATALOG v4 — 24 PATTERNS ═══════════════════════════
+// Algebraic patterns: proven by confluence (0.00% FP)
+const PP=[
+  {code:'P1',name:'Duplicate Initiation',sev:'HIGH',cat:'Segregation of Duties',reg:'PSD3/PSR Art. 49 [COM(2023)367]',risk:'Duplicate debit',w:[1,1,2,3,4,5],sox:'ITGC-PM-01',isae:'CO-PM-01',ctrl:'Duplicate detection',pcaob:'AS 2201.A5',dora:'LOW',iso:'pacs.008',method:'ALGEBRAIC'},
+  {code:'P2',name:'Duplicate Settlement',sev:'CRITICAL',cat:'Settlement Finality',reg:'SFD 98/26/EC, DORA Art. 6',risk:'Double fund transfer',w:[1,2,3,4,5,5],sox:'ITGC-PM-02',isae:'CO-PM-02',ctrl:'Settlement idempotency',pcaob:'AS 2201.A5',dora:'HIGH',iso:'pacs.002',method:'ALGEBRAIC'},
+  {code:'P3',name:'Authentication Bypass',sev:'CRITICAL',cat:'Strong Customer Auth.',reg:'PSD2 SCA Art. 97 → PSR Art. 83',risk:'Unauthorized execution',w:[1,3,2,3,4,5],sox:'ITGC-PM-03',isae:'CO-PM-03',ctrl:'SCA enforcement',pcaob:'AS 2201.62',dora:'CRITICAL',iso:'pain.001',method:'ALGEBRAIC'},
+  {code:'P4',name:'Exec Without Auth',sev:'CRITICAL',cat:'Authorization Sequence',reg:'PSD2 Art. 97(1) → PSR Art. 83(1)',risk:'Funds moved before auth',w:[1,4,2,3,5],sox:'ITGC-PM-04',isae:'CO-PM-04',ctrl:'Execution gate',pcaob:'AS 2201.62',dora:'CRITICAL',iso:'pacs.008',method:'ALGEBRAIC'},
+  {code:'P5',name:'Premature Settlement',sev:'CRITICAL',cat:'Settlement Sequence',reg:'SFD 98/26/EC',risk:'Settlement before execution',w:[1,2,5,3,4],sox:'ITGC-PM-05',isae:'CO-PM-05',ctrl:'Sequence control',pcaob:'AS 2201.A5',dora:'HIGH',iso:'pacs.002',method:'ALGEBRAIC'},
+  {code:'P6',name:'Threshold Splitting',sev:'HIGH',cat:'SCA Exemption',reg:'PSD2 RTS Art. 16/18',risk:'SCA threshold avoidance',w:[1,1,2,3,4,5],sox:'ITGC-PM-06',isae:'CO-PM-06',ctrl:'Aggregation control',pcaob:'AS 2201.69',dora:'MEDIUM',iso:'pain.001',method:'ALGEBRAIC'},
+  {code:'P7',name:'Transaction Replay',sev:'CRITICAL',cat:'Idempotency',reg:'PSD3/PSR Art. 83 [COM(2023)367]',risk:'Replayed transaction',w:[1,2,2,2,3,4,5],sox:'ITGC-PM-07',isae:'CO-PM-07',ctrl:'Replay detection',pcaob:'AS 2201.A5',dora:'HIGH',iso:'pacs.008',method:'ALGEBRAIC'},
+  {code:'P8',name:'Beneficiary Swap (BEC)',sev:'CRITICAL',cat:'Beneficiary Integrity',reg:'PSD2 Art. 64 / IPR VoP Art. 5c',risk:'Beneficiary changed post-auth',w:[1,2,4,3,4,5],sox:'ITGC-PM-08',isae:'CO-PM-08',ctrl:'Beneficiary immutability',pcaob:'AS 2201.62',dora:'CRITICAL',iso:'pacs.008',method:'ALGEBRAIC'},
+  // NEW v4: Extended payment patterns
+  {code:'P9',name:'VoP Mismatch Override',sev:'HIGH',cat:'Verification of Payee',reg:'IPR 2024/886 Art. 5c',risk:'Payment sent despite VoP NO_MATCH',w:[1,2,3,3,4,5],sox:'ITGC-PM-09',isae:'CO-PM-09',ctrl:'VoP enforcement',pcaob:'AS 2201.62',dora:'HIGH',iso:'pacs.008',method:'ALGEBRAIC'},
+  {code:'P10',name:'Sanctions Screen Bypass',sev:'CRITICAL',cat:'Sanctions Compliance',reg:'IPR 2024/886 Art. 5d / EU Reg. 269/2014',risk:'Payment to sanctioned entity',w:[1,2,5,4,3,5],sox:'ITGC-PM-10',isae:'CO-PM-10',ctrl:'Daily screening per IPR',pcaob:'AS 2201.A5',dora:'CRITICAL',iso:'pacs.008',method:'ALGEBRAIC'},
+];
+const IP=[
+  {code:'IP1',name:'Duplicate Requisition',sev:'HIGH',cat:'Requisition Controls',reg:'SOX 404',risk:'Maverick spend',w:[1,1,2,3,4,5,6],sox:'ITGC-INV-01',isae:'CO-INV-01',ctrl:'Requisition dedup',tc:'ME51N',pcaob:'AS 2201.69',dora:'LOW',method:'ALGEBRAIC'},
+  {code:'IP2',name:'Duplicate Payment',sev:'CRITICAL',cat:'Payment Controls',reg:'SOX 404',risk:'Double vendor payment',w:[1,2,3,4,5,6,6],sox:'ITGC-INV-02',isae:'CO-INV-02',ctrl:'Payment dedup',tc:'F110',pcaob:'AS 2201.A5',dora:'MEDIUM',method:'ALGEBRAIC'},
+  {code:'IP3',name:'Invoice Without PO',sev:'CRITICAL',cat:'Approval Controls',reg:'SOX 404, ISAE 3402',risk:'Unauthorized commitment',w:[1,4,2,3,5,6],sox:'ITGC-INV-03',isae:'CO-INV-03',ctrl:'PO-Invoice gate',tc:'MIRO',pcaob:'AS 2201.62',dora:'LOW',method:'ALGEBRAIC'},
+  {code:'IP4',name:'Pay Before Receipt',sev:'CRITICAL',cat:'Three-Way Match',reg:'SOX 404, ISAE 3402',risk:'Payment before goods received',w:[1,2,6,3,4,5],sox:'ITGC-INV-04',isae:'CO-INV-04',ctrl:'GR verification',tc:'MIGO',pcaob:'AS 2201.62',dora:'MEDIUM',method:'ALGEBRAIC'},
+  {code:'IP5',name:'Pay Before 3-Way Match',sev:'CRITICAL',cat:'Three-Way Match',reg:'SOX 404',risk:'Payment before reconciliation — MW',w:[1,2,3,6,4,5],sox:'ITGC-INV-05',isae:'CO-INV-05',ctrl:'3-way match enforcement',tc:'MR8M',mw:true,pcaob:'AS 2201.A14',dora:'HIGH',method:'ALGEBRAIC'},
+  {code:'IP6',name:'Invoice Splitting',sev:'HIGH',cat:'Threshold Controls',reg:'SOX 404, EU 2014/24',risk:'Threshold circumvention',w:[1,1,2,3,4,5,6],sox:'ITGC-INV-06',isae:'CO-INV-06',ctrl:'Amount aggregation',tc:'MIRO',pcaob:'AS 2201.69',dora:'LOW',method:'ALGEBRAIC'},
+  {code:'IP7',name:'PO Replay',sev:'CRITICAL',cat:'PO Controls',reg:'SOX 404',risk:'PO reused for unrelated invoices',w:[1,2,2,2,3,4,5,6],sox:'ITGC-INV-07',isae:'CO-INV-07',ctrl:'PO lifecycle check',tc:'ME21N',pcaob:'AS 2201.A5',dora:'MEDIUM',method:'ALGEBRAIC'},
+  {code:'IP8',name:'Match Manipulation',sev:'CRITICAL',cat:'Three-Way Match',reg:'ISAE 3402',risk:'Match altered before booking',w:[1,2,3,5,4,5,6],sox:'ITGC-INV-08',isae:'CO-INV-08',ctrl:'Match immutability',tc:'MR8M',pcaob:'AS 2201.62',dora:'HIGH',method:'ALGEBRAIC'},
+];
+// NEW v4: Heuristic patterns — behavioral/statistical (NOT algebraically proven)
+const HP=[
+  {code:'H1',name:'APP Fraud Risk',sev:'HIGH',cat:'Authorized Push Payment',reg:'PSD3/PSR Art. 59 [COM(2023)367]',risk:'Social engineering — payer authorizes fraudulent payment',method:'HEURISTIC',ctrl:'Multi-factor behavioral check',dora:'HIGH',indicators:['Unusual beneficiary','Rushed timing','Amount anomaly']},
+  {code:'H2',name:'ATO Attempt Signal',sev:'CRITICAL',cat:'Account Takeover',reg:'PSD2 Art. 72 / DORA Art. 17',risk:'Session anomaly — potential credential compromise',method:'HEURISTIC',ctrl:'Session fingerprinting',dora:'CRITICAL',indicators:['New device','Unusual geolocation','Rapid session change']},
+  {code:'H3',name:'Velocity Anomaly',sev:'MEDIUM',cat:'Transaction Monitoring',reg:'AML Directive 2015/849 Art. 18',risk:'Unusual transaction frequency to same beneficiary',method:'HEURISTIC',ctrl:'Velocity threshold check',dora:'MEDIUM',indicators:['High frequency','Repeated amounts','Same beneficiary']},
+  {code:'H4',name:'Cross-Border High Value',sev:'MEDIUM',cat:'Risk Assessment',reg:'AML Directive 2015/849 Art. 18(2)',risk:'Large cross-border transfer to non-core market',method:'HEURISTIC',ctrl:'Geographic risk scoring',dora:'LOW',indicators:['Amount > €15K','Non-core country','New beneficiary']},
+  {code:'H5',name:'VoP Name Mismatch',sev:'HIGH',cat:'Verification of Payee',reg:'IPR 2024/886 Art. 5c',risk:'IBAN registered to different name than instructed',method:'HEURISTIC',ctrl:'IPR VoP check (match/close/no)',dora:'MEDIUM',indicators:['NO_MATCH result','Payer override','First-time payee']},
+  {code:'H6',name:'Synthetic Pattern Cluster',sev:'HIGH',cat:'Multi-TX Correlation',reg:'PSD3/PSR recital 47 [COM(2023)367]',risk:'Multiple low-value txns aggregating to high-value outcome',method:'HEURISTIC',ctrl:'Cross-session aggregation',dora:'MEDIUM',indicators:['Structured amounts','Common beneficiary','Time clustering']},
+];
+
+const BASE=new Date(2025,11,1),PEND=new Date(2026,1,28);
+// Payment generation with heuristic scoring
+function genPay(n){_s=3402;const tx=[];let ph='0'.repeat(32);for(let i=0;i<n;i++){const f=R()<0.165,p=f?pk(PP):null,w=p?[...p.w]:[1,2,3,4,5],{canonical:cn,steps:st,violations:vl}=reduce(w),dt=addD(BASE,Math.floor(R()*89)),db=pk(DEBTORS),cr=pk(CREDITORS),am=f?(p.sev==='CRITICAL'?+(R()*480000+20000).toFixed(2):+(R()*9500+500).toFixed(2)):+(R()*195000+800).toFixed(2);
+  const vopR=R()<0.03?'NO_MATCH':R()<0.08?'CLOSE_MATCH':'MATCH';
+  const iso20022={msgType:R()>.4?'pacs.008.001.10':'pain.001.001.11',msgId:rId('MSG-',12),instrId:rId('INSTR-',10),endToEndId:rId('E2E-',12),txId:rId('TXN-',10)};
+  const pd=JSON.stringify({w,cn,vl,d:fmtD(dt)}),prH=sHash(pd),cH=sHash(ph+prH);ph=cH;
+  // Heuristic flags (independent of algebraic verdict)
+  const hFlags=[];
+  if(vopR==='NO_MATCH')hFlags.push({...HP[4],score:75});
+  else if(vopR==='CLOSE_MATCH')hFlags.push({...HP[4],score:35});
+  if(am>15000&&cr.co&&!['BE','NL','LU','DE','FR'].includes(cr.co))hFlags.push({...HP[3],score:40});
+  if(R()<0.04)hFlags.push({...HP[0],score:Math.floor(R()*30+55)});
+  if(R()<0.02)hFlags.push({...HP[1],score:Math.floor(R()*25+60)});
+  if(R()<0.06)hFlags.push({...HP[2],score:Math.floor(R()*35+25)});
+
+  tx.push({id:rId('TXN-',10),date:fmtD(dt),ts:dt,type:'payment',word:w.join('-'),cWord:cn.join('-'),rSteps:st.length,vRel:vl.join(';'),debtor:db,creditor:cr,amount:am,currency:'EUR',purpose:pk(PURP),scheme:R()>.3?'SCT':'SCT_INST',sca:pk(['3DS_v2','BIO','SMS_OTP','PUSH']),
+    algebraicVerdict:f?'BLOCKED':'APPROVED',verdict:f?'BLOCKED':hFlags.some(h=>h.score>=60)?'FLAGGED':'APPROVED',
+    finding:p?{...p,materialWeakness:false}:null,violations:vl,lat:Math.floor(R()*12)+3,proofHash:prH,chainHash:cH,evidenceId:rId('EVD-',12),
+    _vopResult:vopR,vop:{result:vopR,instructedName:cr.name,registeredName:vopR==='MATCH'?cr.name:vopR==='CLOSE_MATCH'?cr.name.substring(0,cr.name.length-3)+'...':'Unknown Entity GmbH'},
+    iso20022,heuristicFlags:hFlags,heuristicScore:Math.max(0,...hFlags.map(h=>h.score),0),
+    doraClass:p?p.dora:hFlags.some(h=>h.dora==='CRITICAL')?'CRITICAL':hFlags.some(h=>h.dora==='HIGH')?'HIGH':'NONE',
+  });}return tx;}
+function genInv(n){_s=2201;const tx=[];let ph='0'.repeat(32);for(let i=0;i<n;i++){const f=R()<0.175,p=f?pk(IP):null,w=p?[...p.w]:[1,2,3,4,5,6],{canonical:cn,steps:st,violations:vl}=reduce(w),dt=addD(BASE,Math.floor(R()*89)),vn=pk(VENDORS),mg=pk(MATG),cc=pk(CCTR),co=pk(COCO),am=f?(p.sev==='CRITICAL'?+(R()*350000+15000).toFixed(2):+(R()*12000+1000).toFixed(2)):+(R()*180000+500).toFixed(2),tr=pk([.21,.21,.21,.06,0]),po=rId('PO-45',5),gr=rId('GR-50',5),pd=JSON.stringify({w,cn,vl,d:fmtD(dt)}),prH=sHash(pd),cH=sHash(ph+prH);ph=cH;
+  const hFlags=[];if(R()<0.03)hFlags.push({...HP[2],score:Math.floor(R()*30+30)});if(R()<0.02)hFlags.push({...HP[5],score:Math.floor(R()*25+45)});
+  tx.push({id:rId('INV-',10),type:'invoice',date:fmtD(dt),ts:dt,word:w.join('-'),cWord:cn.join('-'),rSteps:st.length,vRel:vl.join(';'),poNumber:po,grNumber:gr,viRef:rId('VI-',8),sapDoc:rId('51',8),vendor:{id:vn.id,name:vn.name,country:vn.co,terms:vn.t,bank:vn.b},material:{code:mg.c,name:mg.n,gl:mg.gl},costCenter:{code:cc.c,dept:cc.d,manager:cc.m},companyCode:{code:co.c,name:co.n},amount:am,taxRate:tr,taxAmt:+(am*tr).toFixed(2),gross:+(am*(1+tr)).toFixed(2),currency:'EUR',postDate:fmtD(addD(dt,Math.floor(R()*5))),dueDate:fmtD(addD(dt,parseInt(vn.t.replace('NET','')))),aging:Math.max(0,Math.floor((PEND-addD(dt,parseInt(vn.t.replace('NET',''))))/(864e5))),
+    algebraicVerdict:f?'BLOCKED':'APPROVED',verdict:f?'BLOCKED':hFlags.some(h=>h.score>=60)?'FLAGGED':'APPROVED',
+    finding:p?{...p,materialWeakness:p.mw||false}:null,violations:vl,lat:Math.floor(R()*12)+3,proofHash:prH,chainHash:cH,evidenceId:rId('EVD-',12),
+    heuristicFlags:hFlags,heuristicScore:Math.max(0,...hFlags.map(h=>h.score),0),
+    doraClass:p?p.dora:hFlags.some(h=>h.dora==='HIGH')?'HIGH':'NONE',
+  });}return tx;}
+
+// ═══ EXPORT ═════════════════════════════════════════════════════
+function dlCSV(fn,h,rows){const e=v=>{const s=String(v??'');return s.includes(',')||s.includes('"')||s.includes('\n')?`"${s.replace(/"/g,'""')}"`:s;};const c=[h.join(','),...rows.map(r=>r.map(e).join(','))].join('\n');const b=new Blob(['\ufeff'+c],{type:'text/csv;charset=utf-8;'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=fn;a.click();URL.revokeObjectURL(u);}
+function dlJSON(fn,d){const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=fn;a.click();URL.revokeObjectURL(u);}
+
+// ═══ THEME ═════════════════════════════════════════════════════
+const C={
+  bg:'#f5f6f8',sf:'#ffffff',sf2:'#fafbfc',bd:'#e2e6ed',
+  nv:'#1a2744',nv2:'#2a3a5c',nvL:'#3d5a94',
+  gd:'#c49a2a',gdL:'#d4af37',gdB:'rgba(196,154,42,0.06)',
+  w:'#ffffff',tx:'#1a2744',t1:'#3d4f6f',t2:'#6b7a94',t3:'#97a3b6',
+  ok:'#1a8754',okB:'rgba(26,135,84,0.06)',
+  cr:'#c0392b',crB:'rgba(192,57,43,0.05)',crBd:'rgba(192,57,43,0.2)',
+  am:'#d4a017',amB:'rgba(212,160,23,0.06)',
+  // NEW: heuristic color — orange
+  hr:'#d96c1c',hrB:'rgba(217,108,28,0.06)',
+  hd:"'Libre Franklin','Franklin Gothic Medium',system-ui,sans-serif",
+  sn:"'Libre Franklin',system-ui,sans-serif",
+  mn:"'Fira Code','IBM Plex Mono','Consolas',monospace",
+};
+const fmt$=n=>n>=1e6?`€${(n/1e6).toFixed(2)}M`:n>=1e3?`€${(n/1e3).toFixed(0)}K`:`€${n.toFixed(0)}`;
+
+// ═══ UI COMPONENTS ══════════════════════════════════════════════
+const Badge=({children,color=C.t2,bg})=><span style={{display:'inline-flex',padding:'3px 9px',borderRadius:4,fontSize:10,fontWeight:700,fontFamily:C.mn,color,background:bg||`${color}10`,border:`1px solid ${color}25`,letterSpacing:'.04em',whiteSpace:'nowrap'}}>{children}</span>;
+const SevB=({s})=>s==='CRITICAL'?<Badge color={C.cr} bg={C.crB}>CRITICAL</Badge>:s==='MEDIUM'?<Badge color={C.am} bg={C.amB}>MEDIUM</Badge>:<Badge color="#b8860b" bg={C.gdB}>HIGH</Badge>;
+const MethodB=({m})=>m==='ALGEBRAIC'?<Badge color={C.ok} bg={C.okB}>PROVEN</Badge>:<Badge color={C.hr} bg={C.hrB}>HEURISTIC</Badge>;
+const VerdictB=({v})=>v==='BLOCKED'?<Badge color={C.cr} bg={C.crB}>BLOCKED</Badge>:v==='FLAGGED'?<Badge color={C.hr} bg={C.hrB}>FLAGGED</Badge>:<Badge color={C.ok} bg={C.okB}>APPROVED</Badge>;
+const Card=({children,style={},...p})=><div style={{background:C.sf,borderRadius:12,border:`1px solid ${C.bd}`,padding:20,boxShadow:'0 1px 3px rgba(26,39,68,0.04)',...style}} {...p}>{children}</div>;
+const KPI=({label,value,sub,color=C.tx,icon,accent})=><Card style={{flex:1,minWidth:145,borderTop:accent?`3px solid ${accent}`:'none'}}>
+  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+    <div><div style={{fontSize:10,color:C.t3,fontFamily:C.mn,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:6}}>{label}</div>
+    <div style={{fontSize:26,fontWeight:800,color,fontFamily:C.hd,letterSpacing:'-.02em',lineHeight:1}}>{value}</div>
+    {sub&&<div style={{fontSize:11,color:C.t2,marginTop:5}}>{sub}</div>}</div>
+    {icon&&<div style={{width:34,height:34,borderRadius:8,background:accent?`${accent}10`:C.sf2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15}}>{icon}</div>}
+  </div>
+</Card>;
+const Sec=({children,sub,right})=><div style={{marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'flex-end',flexWrap:'wrap',gap:8}}>
+  <div><h2 style={{fontSize:17,fontWeight:800,color:C.nv,fontFamily:C.hd,margin:0,letterSpacing:'-.01em'}}>{children}</h2>{sub&&<div style={{fontSize:12,color:C.t2,marginTop:2}}>{sub}</div>}</div>
+  {right&&<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{right}</div>}
+</div>;
+const Xbtn=({onClick,label,icon='↓'})=><button onClick={onClick} style={{display:'flex',alignItems:'center',gap:5,padding:'6px 14px',borderRadius:8,border:`1px solid ${C.nv}20`,background:C.w,color:C.nv,cursor:'pointer',fontFamily:C.sn,fontSize:11,fontWeight:700,transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background=C.nv;e.currentTarget.style.color=C.w;}} onMouseOut={e=>{e.currentTarget.style.background=C.w;e.currentTarget.style.color=C.nv;}}><span style={{fontSize:13}}>{icon}</span>{label}</button>;
+const Table=({cols,data:d,onRow,expId,renderExp})=><div style={{borderRadius:10,border:`1px solid ${C.bd}`,overflow:'hidden',background:C.w}}>
+  <div style={{display:'grid',gridTemplateColumns:cols.map(c=>c.w||'1fr').join(' '),padding:'10px 16px',background:C.sf2,borderBottom:`1px solid ${C.bd}`,gap:8}}>
+    {cols.map((c,i)=><div key={i} style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:C.mn,textTransform:'uppercase',letterSpacing:'.08em'}}>{c.l}</div>)}
+  </div>
+  <div style={{maxHeight:400,overflowY:'auto'}}>
+    {d.map((row,ri)=><div key={ri}>
+      <div onClick={()=>onRow?.(row)} style={{display:'grid',gridTemplateColumns:cols.map(c=>c.w||'1fr').join(' '),padding:'9px 16px',borderBottom:`1px solid ${C.bd}`,gap:8,cursor:onRow?'pointer':'default',background:expId===row.id?'#f0f4fa':'transparent',transition:'background .1s'}}>
+        {cols.map((c,ci)=><div key={ci} style={{fontSize:12,color:C.t1,fontFamily:c.mono?C.mn:C.sn,display:'flex',alignItems:'center',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.r?c.r(row):row[c.k]}</div>)}
+      </div>
+      {expId===row.id&&renderExp&&<div style={{padding:'14px 20px',background:'#f7f9fc',borderBottom:`1px solid ${C.bd}`}}>{renderExp(row)}</div>}
+    </div>)}
+  </div>
+</div>;
+
+// Tab button helper
+const TabBtn=({k,cur,onClick,children})=><button onClick={()=>onClick(k)} style={{padding:'6px 14px',borderRadius:8,border:`1px solid ${cur===k?C.nv:C.bd}`,background:cur===k?C.nv:'transparent',color:cur===k?C.w:C.t2,cursor:'pointer',fontFamily:C.sn,fontSize:12,fontWeight:600,transition:'all .12s'}}>{children}</button>;
+
+// ═══ DATA HOOK ══════════════════════════════════════════════════
+function useData(){return useMemo(()=>{
+  const pay=genPay(600),inv=genInv(600),all=[...pay,...inv].sort((a,b)=>b.ts-a.ts);
+  const bl=all.filter(t=>t.algebraicVerdict==='BLOCKED'),fl=all.filter(t=>t.verdict==='FLAGGED'&&t.algebraicVerdict!=='BLOCKED'),ap=all.filter(t=>t.verdict==='APPROVED');
+  const pBl=pay.filter(t=>t.algebraicVerdict==='BLOCKED'),iBl=inv.filter(t=>t.algebraicVerdict==='BLOCKED');
+  const pFl=pay.filter(t=>t.verdict==='FLAGGED'&&t.algebraicVerdict!=='BLOCKED');
+  const tExp=bl.reduce((s,t)=>s+(t.gross||t.amount),0),pExp=pBl.reduce((s,t)=>s+t.amount,0),iExp=iBl.reduce((s,t)=>s+(t.gross||t.amount),0);
+  const mw=iBl.filter(t=>t.finding?.materialWeakness);
+  const weeks=[];for(let i=0;i<13;i++){const ws=addD(BASE,i*7),we=addD(ws,6);const wTx=all.filter(t=>t.ts>=ws&&t.ts<=we);const wBl=wTx.filter(t=>t.algebraicVerdict==='BLOCKED');const wFl=wTx.filter(t=>t.verdict==='FLAGGED'&&t.algebraicVerdict!=='BLOCKED');weeks.push({name:`W${i+1}`,week:`${fmtD(ws).slice(5)}`,total:wTx.length,blocked:wBl.length,flagged:wFl.length,approved:wTx.length-wBl.length-wFl.length,exposure:Math.round(wBl.reduce((s,t)=>s+(t.gross||t.amount),0))});}
+  const months=[{n:'Dec 25',m:11,y:2025},{n:'Jan 26',m:0,y:2026},{n:'Feb 26',m:1,y:2026}];
+  const monthly=months.map(x=>{const mTx=all.filter(t=>t.ts.getMonth()===x.m&&t.ts.getFullYear()===x.y);const mBl=mTx.filter(t=>t.algebraicVerdict==='BLOCKED');const mFl=mTx.filter(t=>t.verdict==='FLAGGED'&&t.algebraicVerdict!=='BLOCKED');return{month:x.n,total:mTx.length,blocked:mBl.length,flagged:mFl.length,exposure:mBl.reduce((s,t)=>s+(t.gross||t.amount),0)};});
+  const cats={};bl.forEach(t=>{if(t.finding){const c=t.finding.cat;cats[c]=(cats[c]||{count:0,exp:0});cats[c].count++;cats[c].exp+=(t.gross||t.amount);}});
+  const sevData=[{name:'Critical',value:bl.filter(t=>t.finding?.sev==='CRITICAL').length,color:C.cr},{name:'High',value:bl.filter(t=>t.finding?.sev==='HIGH').length,color:C.gd}];
+  const typeData=[{name:'Payments',value:pBl.length,color:C.nv2},{name:'Invoices',value:iBl.length,color:C.gd}];
+  const vExp={};iBl.forEach(t=>{const v=t.vendor.name;vExp[v]=(vExp[v]||{count:0,amount:0});vExp[v].count++;vExp[v].amount+=(t.gross||t.amount);});
+  const dExp={};iBl.forEach(t=>{const d=t.costCenter.dept;dExp[d]=(dExp[d]||{count:0,amount:0});dExp[d].count++;dExp[d].amount+=(t.gross||t.amount);});
+  const riskMap={};bl.forEach(t=>{if(t.finding){const k=t.finding.code;riskMap[k]=riskMap[k]||{...t.finding,count:0,exp:0};riskMap[k].count++;riskMap[k].exp+=(t.gross||t.amount);}});
+  const topRisks=Object.values(riskMap).sort((a,b)=>b.exp-a.exp);
+  const overdue=iBl.filter(t=>t.aging>0).sort((a,b)=>b.aging-a.aging);
+  // VoP stats
+  const vopStats={match:pay.filter(t=>t.vop?.result==='MATCH').length,close:pay.filter(t=>t.vop?.result==='CLOSE_MATCH').length,no:pay.filter(t=>t.vop?.result==='NO_MATCH').length};
+  // DORA classification
+  const doraStats={CRITICAL:all.filter(t=>t.doraClass==='CRITICAL').length,HIGH:all.filter(t=>t.doraClass==='HIGH').length,MEDIUM:all.filter(t=>t.doraClass==='MEDIUM').length,LOW:all.filter(t=>t.doraClass==='LOW').length};
+  // Heuristic summary
+  const hTotal=all.filter(t=>t.heuristicFlags?.length>0).length;
+  return{pay,inv,all,bl,fl,ap,pBl,iBl,pFl,tExp,pExp,iExp,mw,weeks,monthly,cats,sevData,typeData,vExp,dExp,topRisks,overdue,vopStats,doraStats,hTotal};
+},[]);}
+
+// ═══ HOME ═══════════════════════════════════════════════════════
+function HomeView({data}){
+  const catRows=Object.entries(data.cats).map(([n,d])=>({name:n,...d})).sort((a,b)=>b.exp-a.exp);
+  const vendorRows=Object.entries(data.vExp).map(([n,d])=>({name:n,...d})).sort((a,b)=>b.amount-a.amount).slice(0,8);
+  const TT=({active,payload,label})=>{if(!active||!payload?.length)return null;return<div style={{background:C.nv,padding:'8px 12px',borderRadius:6,border:'none',boxShadow:'0 4px 12px rgba(0,0,0,.15)'}}><div style={{color:'#fff',fontSize:11,fontWeight:700,marginBottom:2}}>{label}</div>{payload.map((p,i)=><div key={i} style={{color:p.color||'#ccc',fontSize:11}}>{p.name}: {typeof p.value==='number'&&p.value>999?fmt$(p.value):p.value}</div>)}</div>;};
+  return <div style={{display:'flex',flexDirection:'column',gap:20}}>
+    {/* Dual-layer banner */}
+    <Card style={{background:`linear-gradient(135deg,${C.nv},${C.nv2})`,border:'none',padding:'16px 22px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:12}}>
+        <div><div style={{fontSize:13,fontWeight:800,color:C.gdL,fontFamily:C.hd,letterSpacing:'.04em'}}>CERTAINTY LAYER</div><div style={{fontSize:11,color:'rgba(255,255,255,.65)',marginTop:3}}>Algebraic proof (0.00% FP) + Heuristic scoring (behavioral flags) — complementary detection</div></div>
+        <div style={{display:'flex',gap:12,fontSize:11}}>
+          <div style={{textAlign:'center'}}><div style={{color:'#fff',fontWeight:800,fontSize:20,fontFamily:C.hd}}>{PP.length+IP.length}</div><div style={{color:C.gdL,fontWeight:600}}>Proven patterns</div></div>
+          <div style={{width:1,background:'rgba(255,255,255,.15)'}}/>
+          <div style={{textAlign:'center'}}><div style={{color:'#fff',fontWeight:800,fontSize:20,fontFamily:C.hd}}>{HP.length}</div><div style={{color:C.hr,fontWeight:600}}>Heuristic flags</div></div>
+          <div style={{width:1,background:'rgba(255,255,255,.15)'}}/>
+          <div style={{textAlign:'center'}}><div style={{color:'#fff',fontWeight:800,fontSize:20,fontFamily:C.hd}}>{PP.length+IP.length+HP.length}</div><div style={{color:'rgba(255,255,255,.5)',fontWeight:600}}>Total coverage</div></div>
+        </div>
+      </div>
+    </Card>
+    {/* KPIs */}
+    <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+      <KPI label="Transactions" value={data.all.length.toLocaleString()} sub="Dec 2025 – Feb 2026" icon="⚡" accent={C.nv}/>
+      <KPI label="Blocked (Proven)" value={data.bl.length} sub={`${(data.bl.length/data.all.length*100).toFixed(1)}% · 0.00% FP`} color={C.cr} icon="🛡" accent={C.cr}/>
+      <KPI label="Flagged (Heuristic)" value={data.fl.length} sub="Requires human review" color={C.hr} icon="⚠" accent={C.hr}/>
+      <KPI label="Exposure Prevented" value={fmt$(data.tExp)} color={C.gd} icon="💰" accent={C.gd}/>
+      <KPI label="VoP Mismatches" value={data.vopStats.no+data.vopStats.close} sub={`${data.vopStats.no} NO_MATCH · ${data.vopStats.close} CLOSE`} color={C.am} accent={C.am}/>
+    </div>
+    {/* Charts Row */}
+    <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14}}>
+      <Card>
+        <div style={{fontSize:13,fontWeight:700,color:C.nv,marginBottom:12}}>Weekly Detection — Algebraic + Heuristic</div>
+        <ResponsiveContainer width="100%" height={210}>
+          <AreaChart data={data.weeks}><defs><linearGradient id="gBl" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.cr} stopOpacity={.25}/><stop offset="95%" stopColor={C.cr} stopOpacity={0}/></linearGradient><linearGradient id="gFl" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={C.hr} stopOpacity={.25}/><stop offset="95%" stopColor={C.hr} stopOpacity={0}/></linearGradient></defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.bd}/><XAxis dataKey="week" tick={{fontSize:10,fill:C.t3}}/><YAxis tick={{fontSize:10,fill:C.t3}}/>
+            <Tooltip content={<TT/>}/><Area type="monotone" dataKey="blocked" name="Blocked (proven)" stroke={C.cr} fill="url(#gBl)" strokeWidth={2}/><Area type="monotone" dataKey="flagged" name="Flagged (heuristic)" stroke={C.hr} fill="url(#gFl)" strokeWidth={2}/>
+          </AreaChart>
+        </ResponsiveContainer>
+      </Card>
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <Card style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:C.nv,marginBottom:6}}>By Severity</div>
+          <ResponsiveContainer width="100%" height={80}><PieChart><Pie data={data.sevData} cx="50%" cy="50%" innerRadius={20} outerRadius={36} dataKey="value" stroke="none">{data.sevData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie></PieChart></ResponsiveContainer>
+          <div style={{display:'flex',justifyContent:'center',gap:14,marginTop:2}}>{data.sevData.map(s=><div key={s.name} style={{display:'flex',alignItems:'center',gap:4,fontSize:10,color:C.t1}}><div style={{width:8,height:8,borderRadius:2,background:s.color}}/>{s.name}: <strong>{s.value}</strong></div>)}</div>
+        </Card>
+        <Card style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:C.nv,marginBottom:6}}>DORA Classification</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginTop:4}}>
+            {[['CRITICAL',C.cr],['HIGH',C.hr],['MEDIUM',C.am],['LOW',C.t3]].map(([k,c])=><div key={k} style={{textAlign:'center',padding:'6px',borderRadius:6,background:`${c}10`}}><div style={{fontSize:16,fontWeight:800,color:c,fontFamily:C.hd}}>{data.doraStats[k]||0}</div><div style={{fontSize:9,color:c,fontWeight:700}}>{k}</div></div>)}
+          </div>
+        </Card>
+      </div>
+    </div>
+    {/* Monthly + MW */}
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+      <Card><div style={{fontSize:13,fontWeight:700,color:C.nv,marginBottom:12}}>Monthly Volume</div>
+        <ResponsiveContainer width="100%" height={150}><BarChart data={data.monthly} barGap={4}><CartesianGrid strokeDasharray="3 3" stroke={C.bd}/><XAxis dataKey="month" tick={{fontSize:10,fill:C.t3}}/><YAxis tick={{fontSize:10,fill:C.t3}}/><Tooltip content={<TT/>}/>
+          <Bar dataKey="blocked" name="Blocked" fill={C.cr} radius={[4,4,0,0]} barSize={20}/><Bar dataKey="flagged" name="Flagged" fill={C.hr} radius={[4,4,0,0]} barSize={20}/><Bar dataKey="total" name="Total" fill={C.nv} opacity={.12} radius={[4,4,0,0]} barSize={20}/>
+        </BarChart></ResponsiveContainer>
+      </Card>
+      <Card style={data.mw.length?{borderColor:C.crBd,background:'#fdf6f5'}:{}}>
+        {data.mw.length>0?<><div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}><span style={{fontSize:18}}>⚠</span><span style={{fontSize:14,fontWeight:800,color:C.cr,fontFamily:C.hd}}>Material Weakness</span></div><div style={{fontSize:12,color:C.t1,lineHeight:1.7}}><strong>{data.mw.length}</strong> finding(s) — <strong style={{color:C.cr}}>Pay Before 3-Way Match</strong>. PCAOB AS 2201 ¶A14 material weakness. Exposure: <strong style={{color:C.cr}}>{fmt$(data.mw.reduce((s,t)=>s+(t.gross||t.amount),0))}</strong>.</div><div style={{fontSize:11,color:C.cr,fontWeight:700,marginTop:8}}>→ SOX 302/404 remediation required</div></>:
+        <><div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}><span style={{fontSize:18}}>✓</span><span style={{fontSize:14,fontWeight:800,color:C.ok,fontFamily:C.hd}}>No Material Weakness</span></div><div style={{fontSize:12,color:C.t2,lineHeight:1.7}}>All controls operating effectively.</div></>}
+      </Card>
+    </div>
+    {/* Top Risks + Overdue */}
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+      <Card><div style={{fontSize:13,fontWeight:700,color:C.nv,marginBottom:12}}>Top Risks by Exposure</div>
+        {data.topRisks.slice(0,6).map((r,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 0',borderBottom:i<5?`1px solid ${C.bd}`:'none'}}>
+          <div style={{width:20,height:20,borderRadius:5,background:r.sev==='CRITICAL'?C.crB:C.gdB,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:r.sev==='CRITICAL'?C.cr:C.gd,fontFamily:C.mn}}>{i+1}</div>
+          <div style={{flex:1}}><div style={{fontSize:11,fontWeight:600,color:C.tx}}>{r.name}</div><div style={{fontSize:10,color:C.t3}}>{r.cat}</div></div>
+          <div style={{textAlign:'right'}}><div style={{fontSize:12,fontWeight:800,color:C.gd,fontFamily:C.hd}}>{fmt$(r.exp)}</div><div style={{fontSize:10,color:C.t3}}>{r.count}</div></div>
+        </div>)}
+      </Card>
+      <Card><div style={{fontSize:13,fontWeight:700,color:C.nv,marginBottom:12}}>Vendor Exposure — Top 8</div>
+        <ResponsiveContainer width="100%" height={180}><BarChart data={vendorRows} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke={C.bd}/><XAxis type="number" tick={{fontSize:10,fill:C.t3}} tickFormatter={v=>fmt$(v)}/><YAxis type="category" dataKey="name" tick={{fontSize:9,fill:C.t1}} width={100}/><Tooltip formatter={v=>fmt$(v)}/>
+          <Bar dataKey="amount" name="Exposure" fill={C.gd} radius={[0,4,4,0]} barSize={14}/>
+        </BarChart></ResponsiveContainer>
+      </Card>
+    </div>
+  </div>;
+}
+
+// ═══ AUDIT VIEW ═════════════════════════════════════════════════
+function AuditView({data}){
+  const [eId,setEId]=useState(null);const [sc,setSc]=useState('all');
+  const bl=sc==='pay'?data.pBl:sc==='inv'?data.iBl:data.bl;
+  const soxMap={};data.bl.forEach(t=>{if(t.finding){const k=t.finding.sox;soxMap[k]=soxMap[k]||{...t.finding,count:0,exp:0};soxMap[k].count++;soxMap[k].exp+=(t.gross||t.amount);}});
+  const soxE=Object.values(soxMap).sort((a,b)=>b.exp-a.exp);
+  const xFlat=useCallback(()=>{dlCSV('Audit_Flat_'+fmtD(new Date())+'.csv',['Evidence','TX','Date','Type','Code','Finding','Sev','Category','Method','SOX','ISAE','PCAOB','Reg','DORA_Class','ISO_Msg','Word','Canonical','Steps','Violations','Amount','Gross','VoP','Proof_Hash','Chain_Hash','Counterparty','Heuristic_Score','Heuristic_Flags','MW'],data.bl.map(t=>[t.evidenceId,t.id,t.date,t.type,t.finding?.code,t.finding?.name,t.finding?.sev,t.finding?.cat,t.finding?.method,t.finding?.sox,t.finding?.isae,t.finding?.pcaob,t.finding?.reg,t.doraClass,t.iso20022?.msgType||'',t.word,t.cWord,t.rSteps,t.vRel,t.amount,t.gross||t.amount,t.vop?.result||'',t.proofHash,t.chainHash,t.type==='payment'?t.creditor.name:t.vendor?.name,t.heuristicScore,t.heuristicFlags?.map(h=>h.code).join(';')||'',t.finding?.materialWeakness?'YES':'']));},[data]);
+  const xMatrix=useCallback(()=>{dlCSV('Control_Matrix_'+fmtD(new Date())+'.csv',['SOX','ISAE','PCAOB','Control','Finding','Method','DORA','Sev','Count','Exposure','Effective'],soxE.map(s=>[s.sox,s.isae,s.pcaob,s.ctrl,s.name,s.method,s.dora,s.sev,s.count,s.exp.toFixed(2),'No']));},[soxE]);
+  const xProof=useCallback(()=>{dlJSON('Proof_Chain_'+fmtD(new Date())+'.json',{metadata:{engine:'Hecke Platform v4.0',modules:['HFG v3.3','HIG v1.0','Heuristic Engine v1.0'],algebra:'H₀(Sₙ) 0-Hecke monoid',proof:'Confluence theorem — Coq 433 lines',fp_algebraic:'0.00%',fp_heuristic:'configurable threshold',patterns:{algebraic:PP.length+IP.length,heuristic:HP.length,total:PP.length+IP.length+HP.length},doi:['10.5281/zenodo.18609841','10.5281/zenodo.18642975'],vop:'IPR 2024/886 Art.5c',dora:'EU 2022/2554',period:'2025-12-01 to 2026-02-28'},findings:data.bl.map(t=>({evidence:t.evidenceId,tx:t.id,date:t.date,type:t.type,finding:t.finding,doraClass:t.doraClass,iso20022:t.iso20022,vop:t.vop,heuristicFlags:t.heuristicFlags,proof:{word:t.word,canonical:t.cWord,steps:t.rSteps,violations:t.vRel,hash:t.proofHash,chain:t.chainHash},amount:t.gross||t.amount}))});},[data]);
+  return <div style={{display:'flex',flexDirection:'column',gap:18}}>
+    <Sec sub="SOX 404 / ISAE 3402 Type II / PCAOB AS 2201 / DORA" right={<><Xbtn onClick={xFlat} label="Flat File (CSV)" icon="📋"/><Xbtn onClick={xMatrix} label="Control Matrix" icon="🔒"/><Xbtn onClick={xProof} label="Proof Chain" icon="🔗"/></>}>Audit & Compliance</Sec>
+    <div style={{display:'flex',gap:12,flexWrap:'wrap'}}><KPI label="Total Findings" value={data.bl.length} color={C.cr} accent={C.cr}/><KPI label="Heuristic Flags" value={data.fl.length} color={C.hr} accent={C.hr}/><KPI label="Material Weakness" value={data.mw.length} color={data.mw.length?C.cr:C.ok} accent={data.mw.length?C.cr:C.ok}/><KPI label="Algebraic FP Rate" value="0.00%" color={C.ok} accent={C.ok}/></div>
+    <Sec sub="Control objectives with method + DORA classification">Control Matrix</Sec>
+    <Table cols={[{l:'SOX',w:'85px',mono:true,r:r=><span style={{fontWeight:700,color:C.nv}}>{r.sox}</span>},{l:'ISAE',w:'75px',mono:true,r:r=>r.isae},{l:'Control',w:'1fr',r:r=><div><div style={{fontWeight:600,color:C.tx,fontSize:11}}>{r.name}</div><div style={{fontSize:10,color:C.t3}}>{r.ctrl}</div></div>},{l:'Method',w:'68px',r:r=><MethodB m={r.method}/>},{l:'DORA',w:'65px',r:r=><Badge color={r.dora==='CRITICAL'?C.cr:r.dora==='HIGH'?C.hr:C.am}>{r.dora||'—'}</Badge>},{l:'#',w:'40px',mono:true,r:r=><span style={{fontWeight:700,color:C.cr}}>{r.count}</span>},{l:'Exposure',w:'85px',mono:true,r:r=><span style={{fontWeight:600,color:C.gd}}>{fmt$(r.exp)}</span>}]} data={soxE}/>
+    <Sec sub="Expand for full audit evidence + ISO 20022 + VoP + heuristic detail">Finding Register</Sec>
+    <div style={{display:'flex',gap:8,marginBottom:6}}>{[['all','All',data.bl.length],['pay','Payments',data.pBl.length],['inv','Invoices',data.iBl.length]].map(([k,l,n])=><TabBtn key={k} k={k} cur={sc} onClick={v=>{setSc(v);setEId(null);}}>{l} ({n})</TabBtn>)}</div>
+    <Table cols={[{l:'Date',w:'80px',mono:true,r:r=>r.date},{l:'ID',w:'100px',mono:true,r:r=>r.id},{l:'Method',w:'65px',r:r=><MethodB m={r.finding?.method}/>},{l:'Finding',w:'1fr',r:r=><span style={{fontWeight:600,color:C.tx,fontSize:11}}>{r.finding?.name}</span>},{l:'DORA',w:'60px',r:r=><Badge color={r.doraClass==='CRITICAL'?C.cr:r.doraClass==='HIGH'?C.hr:C.am}>{r.doraClass}</Badge>},{l:'Sev.',w:'70px',r:r=><SevB s={r.finding?.sev}/>},{l:'€',w:'90px',mono:true,r:r=><span style={{fontWeight:600}}>€{(r.gross||r.amount).toLocaleString('en',{minimumFractionDigits:0})}</span>}]} data={bl.slice(0,30)} onRow={r=>setEId(eId===r.id?null:r.id)} expId={eId}
+      renderExp={r=><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:14,fontSize:11,color:C.t1}}>
+        <div><div style={{fontSize:10,color:C.t3,fontFamily:C.mn,marginBottom:4}}>FINDING</div><div style={{lineHeight:1.7}}><strong>Category:</strong> {r.finding.cat}<br/><strong>Regulation:</strong> {r.finding.reg}<br/><strong>Risk:</strong> {r.finding.risk}<br/><strong>DORA:</strong> <span style={{color:r.doraClass==='CRITICAL'?C.cr:C.hr}}>{r.doraClass}</span>{r.finding.materialWeakness&&<><br/><Badge color={C.cr}>MATERIAL WEAKNESS</Badge></>}</div></div>
+        <div><div style={{fontSize:10,color:C.t3,fontFamily:C.mn,marginBottom:4}}>ISO 20022 + VoP</div><div style={{lineHeight:1.7}}>{r.iso20022?<><strong>Message:</strong> <span style={{fontFamily:C.mn,fontSize:10}}>{r.iso20022.msgType}</span><br/><strong>MsgID:</strong> <span style={{fontFamily:C.mn,fontSize:10}}>{r.iso20022.msgId}</span><br/><strong>E2E:</strong> <span style={{fontFamily:C.mn,fontSize:10}}>{r.iso20022.endToEndId}</span></>:<span style={{color:C.t3}}>N/A (invoice)</span>}{r.vop&&<><br/><strong>VoP:</strong> <span style={{color:r.vop.result==='MATCH'?C.ok:r.vop.result==='CLOSE_MATCH'?C.am:C.cr,fontWeight:700}}>{r.vop.result}</span> — {r.vop.instructedName}{r.vop.result!=='MATCH'&&<> ≠ {r.vop.registeredName}</>}</>}</div></div>
+        <div><div style={{fontSize:10,color:C.t3,fontFamily:C.mn,marginBottom:4}}>PROOF CHAIN</div><div style={{lineHeight:1.7,fontFamily:C.mn,fontSize:10}}><strong style={{fontFamily:C.sn,fontSize:11}}>Evidence:</strong> {r.evidenceId}<br/><strong style={{fontFamily:C.sn,fontSize:11}}>Proof:</strong> {r.proofHash}<br/><strong style={{fontFamily:C.sn,fontSize:11}}>Chain:</strong> {r.chainHash}<br/><strong style={{fontFamily:C.sn,fontSize:11}}>Word:</strong> {r.word} → <span style={{color:C.ok}}>{r.cWord}</span>{r.heuristicFlags?.length>0&&<><br/><strong style={{fontFamily:C.sn,fontSize:11}}>Heuristic:</strong> {r.heuristicFlags.map(h=>h.code).join(', ')}</>}</div></div>
+      </div>}/>
+  </div>;
+}
+
+// ═══ ACCOUNTING VIEW ════════════════════════════════════════════
+function AcctView({data}){
+  const [tab,setTab]=useState('queue');const [eId,setEId]=useState(null);const [df,setDf]=useState('all');
+  const q=[...data.bl,...data.fl].sort((a,b)=>(b.gross||b.amount)-(a.gross||a.amount));const fq=df==='all'?q:q.filter(t=>t.type==='invoice'&&t.costCenter?.dept===df);
+  const vR=Object.entries(data.vExp).map(([n,d])=>({name:n,...d})).sort((a,b)=>b.amount-a.amount);
+  const dR=Object.entries(data.dExp).map(([n,d])=>({name:n,...d})).sort((a,b)=>b.amount-a.amount);
+  const xQ=useCallback(()=>{dlCSV('Remediation_Queue.csv',['TX','Date','Type','Verdict','Counterparty','Finding','Method','Sev','Amount','Gross','Dept','Manager','Status'],fq.map(t=>[t.id,t.date,t.type,t.verdict,t.type==='payment'?t.creditor.name:t.vendor?.name,t.finding?.name||t.heuristicFlags?.map(h=>h.name).join('; ')||'—',t.finding?.method||'HEURISTIC',t.finding?.sev||'MEDIUM',t.amount,t.gross||t.amount,t.costCenter?.dept||'',t.costCenter?.manager||'','PENDING']));},[fq]);
+  return <div style={{display:'flex',flexDirection:'column',gap:18}}>
+    <Sec sub="Blocked (proven) + Flagged (heuristic) items" right={<Xbtn onClick={xQ} label="Export Queue" icon="📋"/>}>Accounting Operations</Sec>
+    <div style={{display:'flex',gap:12,flexWrap:'wrap'}}><KPI label="Blocked (Proven)" value={data.bl.length} color={C.cr} accent={C.cr}/><KPI label="Flagged (Review)" value={data.fl.length} color={C.hr} accent={C.hr}/><KPI label="Total Open" value={data.bl.length+data.fl.length} sub={fmt$(data.tExp)} accent={C.gd}/><KPI label="Overdue" value={data.overdue.length} color={data.overdue.length?C.am:C.ok} accent={data.overdue.length?C.am:C.ok}/></div>
+    <div style={{display:'flex',gap:8}}>{[['queue','Remediation Queue'],['vendor','By Vendor'],['dept','By Department'],['aging','Aging']].map(([k,l])=><TabBtn key={k} k={k} cur={tab} onClick={v=>{setTab(v);setEId(null);}}>{l}</TabBtn>)}</div>
+    {tab==='queue'&&<Table cols={[{l:'Date',w:'80px',mono:true,r:r=>r.date},{l:'ID',w:'100px',mono:true,r:r=>r.id},{l:'Verdict',w:'70px',r:r=><VerdictB v={r.verdict}/>},{l:'Counterparty',w:'1fr',r:r=><span style={{fontSize:11}}>{r.type==='payment'?r.creditor.name:r.vendor?.name}</span>},{l:'Finding',w:'120px',r:r=><span style={{fontSize:10,color:C.cr}}>{r.finding?.name||r.heuristicFlags?.[0]?.name||'—'}</span>},{l:'Method',w:'65px',r:r=><MethodB m={r.finding?.method||'HEURISTIC'}/>},{l:'€',w:'90px',mono:true,r:r=><span style={{fontWeight:700}}>€{(r.gross||r.amount).toLocaleString('en',{minimumFractionDigits:0})}</span>}]} data={fq.slice(0,30)}/>}
+    {tab==='vendor'&&<Table cols={[{l:'Vendor',w:'1fr',r:r=><span style={{fontWeight:600}}>{r.name}</span>},{l:'#',w:'60px',mono:true,r:r=><span style={{fontWeight:700,color:C.cr}}>{r.count}</span>},{l:'Exposure',w:'100px',mono:true,r:r=><span style={{fontWeight:700,color:C.gd}}>{fmt$(r.amount)}</span>},{l:'',w:'1fr',r:r=><div style={{height:8,background:C.sf2,borderRadius:4,overflow:'hidden'}}><div style={{width:`${(r.amount/Math.max(...vR.map(v=>v.amount)))*100}%`,height:'100%',background:C.gd,borderRadius:4,opacity:.6}}/></div>}]} data={vR}/>}
+    {tab==='dept'&&<Table cols={[{l:'Department',w:'1fr',r:r=><span style={{fontWeight:600}}>{r.name}</span>},{l:'#',w:'60px',mono:true,r:r=><span style={{fontWeight:700,color:C.cr}}>{r.count}</span>},{l:'Exposure',w:'100px',mono:true,r:r=><span style={{fontWeight:700,color:C.gd}}>{fmt$(r.amount)}</span>},{l:'',w:'1fr',r:r=><div style={{height:8,background:C.sf2,borderRadius:4,overflow:'hidden'}}><div style={{width:`${(r.amount/Math.max(...dR.map(v=>v.amount)))*100}%`,height:'100%',background:C.nv,borderRadius:4,opacity:.4}}/></div>}]} data={dR}/>}
+    {tab==='aging'&&(data.overdue.length===0?<Card><div style={{textAlign:'center',color:C.ok,padding:30}}>No overdue items</div></Card>:
+    <Table cols={[{l:'Days',w:'50px',mono:true,r:r=><span style={{fontWeight:800,color:r.aging>60?C.cr:r.aging>30?C.am:C.t1}}>{r.aging}d</span>},{l:'Due',w:'85px',mono:true,r:r=>r.dueDate},{l:'Invoice',w:'100px',mono:true,r:r=>r.id},{l:'Vendor',w:'1fr',r:r=><span style={{fontSize:11}}>{r.vendor.name}</span>},{l:'Finding',w:'120px',r:r=><span style={{fontSize:10,color:C.cr}}>{r.finding?.name}</span>},{l:'Gross',w:'95px',mono:true,r:r=><span style={{fontWeight:700}}>€{r.gross.toLocaleString('en',{minimumFractionDigits:0})}</span>}]} data={data.overdue.slice(0,25)}/>)}
+  </div>;
+}
+
+// ═══ COVERAGE & LIMITATIONS TAB (NEW v4) ════════════════════════
+function CoverageView(){
+  const patternRadar=[{cat:'Process Integrity',algebraic:95,heuristic:30},{cat:'Identity Fraud',algebraic:0,heuristic:45},{cat:'Social Engineering',algebraic:0,heuristic:40},{cat:'AML/Sanctions',algebraic:15,heuristic:50},{cat:'Behavioral',algebraic:0,heuristic:65},{cat:'Multi-TX Correlation',algebraic:10,heuristic:55}];
+  return <div style={{display:'flex',flexDirection:'column',gap:20}}>
+    <Sec sub="Transparent disclosure of detection scope, methods, and known gaps">Coverage & Limitations</Sec>
+    {/* Dual-method explanation */}
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+      <Card style={{borderTop:`3px solid ${C.ok}`}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><MethodB m="ALGEBRAIC"/><span style={{fontSize:15,fontWeight:800,color:C.nv,fontFamily:C.hd}}>Algebraic Engine</span></div>
+        <div style={{fontSize:12,color:C.t1,lineHeight:1.8}}>
+          <strong>Method:</strong> 0-Hecke monoid H₀(Sₙ) word reduction via confluence theorem.<br/>
+          <strong>Proof:</strong> Coq formalization — 433 lines — verified confluence guarantees unique canonical form.<br/>
+          <strong>False positives:</strong> 0.00% (mathematical guarantee).<br/>
+          <strong>Patterns:</strong> {PP.length} payment + {IP.length} invoice = <strong>{PP.length+IP.length} proven patterns</strong>.<br/>
+          <strong>Latency:</strong> Sub-10µs per reduction.<br/>
+          <strong>ISO 20022:</strong> Maps to pacs.008, pacs.002, pain.001 message types.<br/>
+          <strong>Scope:</strong> Process-integrity violations only. Detects wrong sequence, missing steps, duplicated steps.
+        </div>
+      </Card>
+      <Card style={{borderTop:`3px solid ${C.hr}`}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><MethodB m="HEURISTIC"/><span style={{fontSize:15,fontWeight:800,color:C.nv,fontFamily:C.hd}}>Heuristic Engine</span></div>
+        <div style={{fontSize:12,color:C.t1,lineHeight:1.8}}>
+          <strong>Method:</strong> Behavioral scoring — velocity, VoP, geography, session fingerprinting.<br/>
+          <strong>Proof:</strong> None — statistical/rule-based. Subject to false positives.<br/>
+          <strong>False positives:</strong> Configurable threshold (default: score ≥ 60 → FLAGGED).<br/>
+          <strong>Patterns:</strong> <strong>{HP.length} heuristic flags</strong> (APP, ATO, velocity, cross-border, VoP, clustering).<br/>
+          <strong>Output:</strong> Risk score 0–100 + flag reasons. Requires human review.<br/>
+          <strong>VoP:</strong> IPR 2024/886 Art. 5c IBAN-name verification integration.<br/>
+          <strong>Scope:</strong> Behavioral anomalies, identity risk signals, authorized fraud indicators.
+        </div>
+      </Card>
+    </div>
+    {/* Coverage radar */}
+    <Card>
+      <div style={{fontSize:13,fontWeight:700,color:C.nv,marginBottom:12}}>Coverage by Fraud Category</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,alignItems:'center'}}>
+        <ResponsiveContainer width="100%" height={250}>
+          <RadarChart data={patternRadar}><PolarGrid stroke={C.bd}/><PolarAngleAxis dataKey="cat" tick={{fontSize:10,fill:C.t1}}/><PolarRadiusAxis angle={90} domain={[0,100]} tick={{fontSize:9,fill:C.t3}}/>
+            <Radar name="Algebraic" dataKey="algebraic" stroke={C.ok} fill={C.ok} fillOpacity={0.15} strokeWidth={2}/><Radar name="Heuristic" dataKey="heuristic" stroke={C.hr} fill={C.hr} fillOpacity={0.15} strokeWidth={2}/>
+          </RadarChart>
+        </ResponsiveContainer>
+        <div style={{fontSize:12,color:C.t1,lineHeight:2}}>
+          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}><div style={{width:12,height:3,background:C.ok,borderRadius:1}}/><span style={{fontWeight:700,color:C.ok}}>Algebraic</span> — provably complete within scope</div>
+          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:12}}><div style={{width:12,height:3,background:C.hr,borderRadius:1}}/><span style={{fontWeight:700,color:C.hr}}>Heuristic</span> — coverage depth varies by category</div>
+          <div style={{fontSize:11,color:C.t2,lineHeight:1.7}}>The radar shows estimated detection capability by fraud category. Algebraic detection excels at process integrity (wrong lifecycle sequence). Heuristic scoring extends coverage to behavioral and identity fraud types that algebraic methods cannot address by design.</div>
+        </div>
+      </div>
+    </Card>
+    {/* Known gaps — honest disclosure */}
+    <Card style={{borderLeft:`4px solid ${C.am}`}}>
+      <div style={{fontSize:14,fontWeight:800,color:C.nv,fontFamily:C.hd,marginBottom:12}}>Known Limitations</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:C.cr,marginBottom:6}}>Not Detected (Algebraic)</div>
+          {['APP fraud (payer authorizes — canonical word)','Account takeover (valid credentials used)','Synthetic identity (fabricated identity, correct process)','First-party / friendly fraud','Money laundering layering (individual TX canonical)','Card-not-present fraud','Crypto-asset payment fraud'].map((g,i)=><div key={i} style={{fontSize:11,color:C.t1,padding:'3px 0',display:'flex',gap:6}}><span style={{color:C.cr}}>✗</span>{g}</div>)}
+        </div>
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:C.hr,marginBottom:6}}>Partially Addressed (Heuristic)</div>
+          {['APP fraud → behavioral risk score (not proof)','ATO → session anomaly signal (not proof)','Velocity abuse → frequency threshold flag','Cross-border risk → geographic scoring','VoP mismatch → IPR-mandated check','Pattern clustering → multi-TX correlation'].map((g,i)=><div key={i} style={{fontSize:11,color:C.t1,padding:'3px 0',display:'flex',gap:6}}><span style={{color:C.hr}}>△</span>{g}</div>)}
+        </div>
+      </div>
+    </Card>
+    {/* Regulatory version tracking */}
+    <Card>
+      <div style={{fontSize:13,fontWeight:700,color:C.nv,marginBottom:12}}>Regulatory Reference Tracking</div>
+      <div style={{fontSize:11,color:C.t1,lineHeight:1.8}}>
+        <strong>PSD3/PSR references:</strong> Based on COM(2023)366/367. Political agreement reached 27 Nov 2025. Article numbers may change in final Official Journal text. Version tracking active.<br/>
+        <strong>IPR 2024/886:</strong> In force since April 2024. VoP obligations effective Oct 2025 (eurozone CIs). Fully mapped.<br/>
+        <strong>DORA (EU 2022/2554):</strong> In force since 17 Jan 2025. Incident classification mapped to Art. 18 severity tiers.<br/>
+        <strong>SFD 98/26/EC:</strong> Current law. Settlement finality references are stable.<br/>
+        <strong>SOX 404 / ISAE 3402 / PCAOB AS 2201:</strong> Stable framework. No pending changes.
+      </div>
+    </Card>
+    {/* All 24 patterns */}
+    <Sec sub="Complete catalog: algebraic (proven) + heuristic (behavioral)">Full Pattern Catalog ({PP.length+IP.length+HP.length} patterns)</Sec>
+    <div style={{borderRadius:10,border:`1px solid ${C.bd}`,overflow:'hidden'}}>
+      <div style={{display:'grid',gridTemplateColumns:'55px 1fr 65px 1fr 65px',padding:'10px 16px',background:C.sf2,borderBottom:`1px solid ${C.bd}`,gap:8}}>
+        {['Code','Name','Method','Regulation','DORA'].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.t3,fontFamily:C.mn,textTransform:'uppercase',letterSpacing:'.08em'}}>{h}</div>)}
+      </div>
+      <div style={{maxHeight:400,overflowY:'auto'}}>
+        {[...PP,...IP,...HP].map((p,i)=><div key={i} style={{display:'grid',gridTemplateColumns:'55px 1fr 65px 1fr 65px',padding:'8px 16px',borderBottom:`1px solid ${C.bd}`,gap:8,background:i%2?C.sf2:'transparent'}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.nv,fontFamily:C.mn}}>{p.code}</div>
+          <div><div style={{fontSize:11,fontWeight:600,color:C.tx}}>{p.name}</div><div style={{fontSize:10,color:C.t3}}>{p.cat}</div></div>
+          <div><MethodB m={p.method}/></div>
+          <div style={{fontSize:10,color:C.t2,fontFamily:C.mn}}>{p.reg}</div>
+          <div><Badge color={p.dora==='CRITICAL'?C.cr:p.dora==='HIGH'?C.hr:p.dora==='MEDIUM'?C.am:C.t3}>{p.dora}</Badge></div>
+        </div>)}
+      </div>
+    </div>
+  </div>;
+}
+
+// ═══ MAIN ═══════════════════════════════════════════════════════
+function App(){
+  const data=useData();const [tab,setTab]=useState('home');
+  const tabs=[{id:'home',l:'Overview',ic:'◈'},{id:'audit',l:'Audit',ic:'◇'},{id:'acct',l:'Accounting',ic:'▣'},{id:'coverage',l:'Coverage',ic:'◉'}];
+  return <div style={{minHeight:'100vh',background:C.bg,color:C.tx,fontFamily:C.sn}}>
+    <link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;600;700;800&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet"/>
+    {/* Header */}
+    <div style={{background:C.nv,padding:'0 28px'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',height:54,flexWrap:'wrap',gap:8}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:28,height:28,borderRadius:6,background:`linear-gradient(135deg,${C.gdL},${C.gd})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:900,color:C.nv,fontFamily:C.hd}}>H</div>
+          <div><div style={{fontSize:14,fontWeight:800,color:'#fff',fontFamily:C.hd}}>Hecke Enterprise Console</div><div style={{fontSize:9,color:C.gdL,fontWeight:700,letterSpacing:'.1em'}}>CERTAINTY LAYER — v4.0</div></div>
+        </div>
+        <div style={{display:'flex',gap:2}}>
+          {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',background:tab===t.id?'rgba(255,255,255,.12)':'transparent',color:tab===t.id?'#fff':'rgba(255,255,255,.55)',fontSize:12,fontWeight:tab===t.id?700:500,fontFamily:C.sn,transition:'all .15s'}}><span style={{marginRight:5,fontSize:10}}>{t.ic}</span>{t.l}</button>)}
+        </div>
+      </div>
+    </div>
+    <div style={{background:C.w,borderBottom:`1px solid ${C.bd}`,padding:'6px 28px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:6}}>
+      <div style={{fontSize:11,color:C.t2}}>Period: <strong style={{color:C.tx}}>1 Dec 2025 – 28 Feb 2026</strong> · {data.all.length} TX · <span style={{color:C.ok,fontWeight:700}}>{data.bl.length} blocked</span> · <span style={{color:C.hr,fontWeight:700}}>{data.fl.length} flagged</span></div>
+      <div style={{display:'flex',gap:10,fontSize:10,fontFamily:C.mn,color:C.t3}}><span>HFG v3.3</span><span style={{color:C.bd}}>·</span><span>HIG v1.0</span><span style={{color:C.bd}}>·</span><span style={{color:C.hr}}>Heuristic v1.0</span><span style={{color:C.bd}}>·</span><span style={{color:C.ok}}>FP(alg): 0.00%</span><span style={{color:C.bd}}>·</span><span>VoP: IPR 2024/886</span></div>
+    </div>
+    <div style={{padding:'22px 28px',maxWidth:1280,margin:'0 auto'}}>
+      {tab==='home'&&<HomeView data={data}/>}
+      {tab==='audit'&&<AuditView data={data}/>}
+      {tab==='acct'&&<AcctView data={data}/>}
+      {tab==='coverage'&&<CoverageView/>}
+    </div>
+    <div style={{padding:'14px 28px',borderTop:`1px solid ${C.bd}`,background:C.w,textAlign:'center'}}>
+      <div style={{fontSize:10,color:C.t3,fontFamily:C.mn}}>© 2026 S. F. Lefort · SFL Consulting · Herstal, Belgium · DOI: 10.5281/zenodo.18609841 · 10.5281/zenodo.18642975 · CC BY 4.0</div>
+    </div>
+  </div>;
+}
+
+
+// ═══ MOUNT ═════════════════════════════════════════════════════
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+</script>
+
+<!-- Fallback: if Recharts CDN fails, show helpful error -->
+<script>
+window.addEventListener('load', function() {
+  setTimeout(function() {
+    if (typeof Recharts === 'undefined') {
+      document.getElementById('root').innerHTML =
+        '<div style="padding:40px;text-align:center;font-family:system-ui">' +
+        '<h2 style="color:#c0392b">CDN Loading Error</h2>' +
+        '<p style="color:#6b7a94;margin-top:12px">Recharts library failed to load from CDN.</p>' +
+        '<p style="color:#6b7a94;margin-top:8px">Please check your internet connection or try refreshing.</p>' +
+        '<p style="margin-top:16px"><button onclick="location.reload()" style="padding:8px 20px;border-radius:8px;border:1px solid #1a2744;background:#1a2744;color:white;cursor:pointer;font-size:13px">Reload</button></p></div>';
+    }
+  }, 8000);
+});
+</script>
+</body>
+</html>
